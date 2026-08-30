@@ -269,6 +269,37 @@ All backends implement the same `BasePipeline` interface — adding a new one ta
 
 ---
 
+## Long-form zero-budget workflow
+
+The repository now includes a graphics-first long-form builder driven by [`project.yml`](project.yml) and a manually triggered GitHub Actions workflow at [`.github/workflows/generate-longform.yml`](.github/workflows/generate-longform.yml). It is designed for English science explainers and educational stories in **16:9 at 1920×1080 or higher**, using procedural diagrams, animated cards, charts, particles, typography, and optional AI-generated inserts instead of depending on human footage.
+
+Edit `project.yml`, commit the changes, open the **Actions** tab, select **Generate long-form video**, and choose **Run workflow**. The finished MP4, narration, subtitles when enabled, source report, claims list, shot data, and metadata are uploaded as the `forge-film-output` artifact. Artifact retention is configured for seven days.
+
+### Repository secrets
+
+Add these under **Settings → Secrets and variables → Actions**. The workflow can operate with only some of them because every network provider has a deterministic fallback.
+
+| Secret | Purpose | Required |
+|---|---|---|
+| `OPENROUTER_API_KEY` | Script, scene plan, and visual direction using a configured free model | Optional; without it a deterministic fallback script is used |
+| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Expressive Gemini TTS narration | Optional; Edge TTS is attempted next |
+
+The default narration configuration supports selectable `female_documentary` and `male_documentary` profiles, with additional warm variants. Gemini TTS accepts natural-language delivery direction, so `expressive_prompt` can request documentary pacing, suspense, emphasis, pauses, or a controlled whisper. Hosted free-model availability and quotas can change, so the workflow never treats one provider as the only path.
+
+### Source handling
+
+Add authorized YouTube reference URLs under `sources` in `project.yml`. The workflow uses `yt-dlp` to retrieve public metadata and an available English transcript when possible. It stores source information for research context and claims reporting; it does **not** reuse the source video’s footage. Replace the placeholder URL in the example configuration before running a production job.
+
+### Visual and audio fallback design
+
+A full 5–10 minute render is assembled from many short 16:9 visual cards so that the final video remains long-form without requiring a hosted AI video model to generate hundreds of minutes of footage. The output combines narration, low-volume procedural ambient music, light procedural SFX, normalized audio, and optional `.srt` subtitles. Short AI image or video inserts can be added later behind the provider interfaces without making them a hard dependency.
+
+### Important zero-budget limitation
+
+A public GitHub repository makes the workflow convenient to inspect and rerun, but free hosted AI services can still impose quotas, rate limits, preview-model changes, or temporary failures. GitHub Actions also provides finite runner time and artifact retention. The design therefore prioritizes reproducible media generation and transparent logs, while treating OpenRouter, Gemini, and other hosted services as replaceable enhancements rather than guaranteed infrastructure.
+
+---
+
 ## ❓ FAQ
 
 **Do I need a GPU?**

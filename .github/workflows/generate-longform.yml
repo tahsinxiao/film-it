@@ -1,0 +1,64 @@
+name: Generate long-form video
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_file:
+        description: "Project YAML file"
+        required: true
+        default: "project.yml"
+        type: string
+      openrouter_model:
+        description: "Optional OpenRouter model override"
+        required: false
+        default: "deepseek/deepseek-r1:free"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml requests pillow yt-dlp edge-tts
+
+      - name: Build long-form video
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ inputs.openrouter_model }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          python scripts/build_longform.py --project "${{ inputs.project_file }}"
+
+      - name: Validate output
+        run: |
+          test -s output/final.mp4
+          ffprobe -v error -show_entries stream=width,height,codec_name -show_entries format=duration -of json output/final.mp4
+
+      - name: Upload generated video bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-film-output
+          path: output/
+          if-no-files-found: error
+          retention-days: 7

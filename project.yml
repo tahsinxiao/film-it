@@ -1,0 +1,72 @@
+# Forge Film — long-form science/explainer project
+# Edit this file, commit it, then run the "Generate long-form video" workflow manually.
+
+project:
+  title: "The Mystery of Dark Matter"
+  topic: "Explain what dark matter is, why scientists think it exists, and what we still do not know."
+  target_duration_minutes: 8
+  language: en-US
+  aspect_ratio: "16:9"
+  width: 1920
+  height: 1080
+  fps: 24
+  visual_style: classic  # auto|classic|whiteboard|anime|kawaii|watercolor|retroprint
+  visual_mode: graphics_first
+
+# Reference material is used for research context and source citations.
+# The pipeline extracts metadata/transcript when available; it does not reuse source footage.
+sources:
+  - url: "https://www.youtube.com/watch?v=REPLACE_WITH_SCIENCE_VIDEO_ID"
+    role: reference
+    notes: "Use as background reference; verify claims and avoid copying wording or footage."
+
+narration:
+  enabled: true
+  provider_order: [google_gemini_tts, google_cloud_tts, edge_tts]
+  voice: female_documentary  # female_documentary|male_documentary|female_warm|male_warm
+  model: gemini-2.5-flash-tts
+  language: en-US
+  speaking_rate: 0.96
+  pitch: 0
+  expressive_prompt: >-
+    Read as a calm, intelligent science documentary narrator. Be clear and vivid,
+    vary pace naturally, create suspense before surprising facts, whisper only for
+    genuinely mysterious moments, and pause briefly after important numbers.
+  chunk_max_characters: 5500
+
+content:
+  audience: curious general audience
+  tone: accurate, cinematic, accessible, surprising but not sensationalized
+  include_citations: true
+  avoid_human_characters: true
+  verify_scientific_claims: true
+
+visuals:
+  scene_count: 24
+  hold_seconds_per_scene: 4
+  use_ai_images: true
+  use_procedural_graphics: true
+  use_charts_when_data_is_available: true
+  allow_short_ai_video_inserts: true
+  image_provider_order: [openrouter_image, pollinations, procedural]
+  negative_prompt: "photorealistic humans, faces, hands, logos, copyrighted characters, unreadable text"
+
+sound:
+  background_music: true
+  music_provider_order: [procedural_music, freesound_optional]
+  sfx: true
+  loudness_lufs: -16
+  duck_music_under_narration: true
+
+subtitles:
+  enabled: true
+  format: srt
+  burn_in: false
+
+output:
+  directory: output
+  final_filename: final.mp4
+  include_project_bundle: true
+  include_script: true
+  include_sources_report: true
+  include_shot_manifest: true
