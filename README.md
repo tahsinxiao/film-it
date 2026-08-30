@@ -293,8 +293,9 @@ Add these under **Settings → Secrets and variables → Actions**. The workflow
 |---|---|---|
 | `OPENROUTER_API_KEY` | Script, scene plan, and visual direction using a configured free model | Optional; without it a deterministic fallback script is used |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Expressive Gemini TTS narration | Optional; Edge TTS is attempted next |
+| `ELEVENLABS_API_KEY` | Higher-quality narration and generated paper Foley/SFX | Optional; Gemini and procedural SFX remain available |
 
-The default narration configuration supports selectable `female_documentary` and `male_documentary` profiles, with additional warm variants. Gemini TTS accepts natural-language delivery direction, so `expressive_prompt` can request documentary pacing, suspense, emphasis, pauses, or a controlled whisper. Hosted free-model availability and quotas can change, so the workflow never treats one provider as the only path.
+The default narration configuration supports selectable `female_documentary` and `male_documentary` profiles, with additional warm variants. When `ELEVENLABS_API_KEY` is present, ElevenLabs is attempted first using a documentary voice profile with controlled stability, similarity, and style settings. Gemini TTS remains the next voice provider, followed by Edge TTS. ElevenLabs is also used for up to three cached paper-Foley/SFX generations per run—one whoosh, one impact, and one spark—which are reused at the matching scene timestamps. The free ElevenLabs plan has limited monthly credits and usage-rights restrictions, so Film It treats it as an optional enhancement rather than a hard dependency; when unavailable or exhausted, Gemini, Edge, and procedural fallbacks continue automatically. Hosted free-model availability and quotas can change, so the workflow never treats one provider as the only path.
 
 ### Source handling
 

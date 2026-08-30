@@ -82,6 +82,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL: ${{ inputs.openrouter_model }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           FILM_SCRIPT_OR_TOPIC: ${{ inputs.script_or_topic }}
           FILM_SOURCE_URL: ${{ inputs.source_url }}

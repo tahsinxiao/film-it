@@ -40,6 +40,12 @@ EDGE_VOICE_MAP = {
     "female_warm": "en-US-JennyNeural",
     "male_warm": "en-US-ChristopherNeural",
 }
+ELEVEN_VOICE_MAP = {
+    "female_documentary": "EXAVITQu4vr4xnSDxMaL",
+    "male_documentary": "pNInz6obpgDQGcFmaJgB",
+    "female_warm": "21m00Tcm4TlvDq8ikWAM",
+    "male_warm": "ErXwobaYiN019PkySvjV",
+}
 STYLE_PALETTES = {
     "auto": ((18, 25, 48), (38, 111, 180), (240, 180, 72)),
     "classic": ((12, 25, 43), (25, 91, 130), (239, 190, 88)),
@@ -239,6 +245,38 @@ def gemini_tts(text: str, cfg: dict[str, Any], out: Path) -> bool:
     return False
 
 
+def elevenlabs_tts(text: str, cfg: dict[str, Any], out: Path) -> bool:
+    """Generate expressive narration through ElevenLabs when a key is present."""
+    key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not key:
+        return False
+    voice_id = os.getenv("ELEVENLABS_VOICE_ID", "") or ELEVEN_VOICE_MAP.get(cfg.get("voice", "female_documentary"), ELEVEN_VOICE_MAP["female_documentary"])
+    payload = {
+        "text": text,
+        "model_id": cfg.get("eleven_model", "eleven_multilingual_v2"),
+        "voice_settings": {
+            "stability": float(cfg.get("stability", 0.42)),
+            "similarity_boost": float(cfg.get("similarity_boost", 0.78)),
+            "style": float(cfg.get("style", 0.28)),
+            "use_speaker_boost": True,
+        },
+    }
+    try:
+        r = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128",
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+            json=payload, timeout=240,
+        )
+        r.raise_for_status()
+        if len(r.content) < 1000:
+            return False
+        out.write_bytes(r.content)
+        return True
+    except Exception as exc:
+        print(f"ElevenLabs TTS unavailable: {exc}")
+        return False
+
+
 def edge_tts(text: str, cfg: dict[str, Any], out: Path) -> bool:
     if not shutil.which("edge-tts"):
         return False
@@ -250,6 +288,57 @@ def edge_tts(text: str, cfg: dict[str, Any], out: Path) -> bool:
         return out.exists() and out.stat().st_size > 0
     except Exception as exc:
         print(f"Edge TTS unavailable: {exc}")
+        return False
+
+
+def make_elevenlabs_sfx(manifest: list[dict[str, Any]], seconds: float, work: Path, out: Path) -> bool:
+    """Generate sparse paper Foley/impacts with ElevenLabs, then time-align them."""
+    key = os.getenv("ELEVENLABS_API_KEY", "")
+    if not key:
+        return False
+    events = []
+    cache: dict[str, Path] = {}
+    offset = 0.0
+    prompts = {
+        "whoosh": "soft handcrafted paper layers sliding quickly into place, cinematic paper whoosh, subtle one-shot",
+        "impact": "deep but restrained paper-cardstock thump as a layered scientific object lands, cinematic one-shot",
+        "spark": "tiny paper tap and delicate magical shimmer, subtle scientific discovery accent, one-shot",
+    }
+    for idx, item in enumerate(manifest):
+        kind = str(item.get("sfx", "none")).lower(); duration = float(item.get("duration_seconds", 0))
+        if kind in prompts:
+            if kind in cache:
+                events.append((offset, cache[kind]))
+                offset += duration
+                continue
+            path = work / f"eleven_sfx_{kind}.mp3"
+            try:
+                r = requests.post(
+                    "https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_22050_32",
+                    headers={"xi-api-key": key, "Content-Type": "application/json"},
+                    json={"text": prompts[kind], "duration_seconds": min(1.5, max(0.2, 0.7 if kind != "impact" else 0.9)), "prompt_influence": 0.55},
+                    timeout=45,
+                )
+                r.raise_for_status()
+                if len(r.content) > 500:
+                    path.write_bytes(r.content); cache[kind] = path; events.append((offset, path))
+            except Exception as exc:
+                print(f"ElevenLabs SFX unavailable for {kind}: {exc}")
+        offset += duration
+    if not events:
+        return False
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={max(1, seconds):.3f}"]
+    filters = ["[0:a]volume=0.35[base]"]; labels = ["[base]"]
+    for n, (at, path) in enumerate(events, 1):
+        cmd += ["-i", str(path)]
+        label = f"[e{n}]"; delay = int(at * 1000)
+        filters.append(f"[{n}:a]adelay={delay}|{delay},volume=0.55{label}"); labels.append(label)
+    filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0,volume=0.8[out]")
+    try:
+        run(cmd + ["-filter_complex", ";".join(filters), "-map", "[out]", "-t", str(seconds), "-c:a", "aac", "-b:a", "96k", str(out)])
+        return out.exists() and out.stat().st_size > 0
+    except Exception as exc:
+        print(f"ElevenLabs SFX mix unavailable: {exc}")
         return False
 
 
@@ -524,8 +613,18 @@ def main() -> int:
     audio = work / "narration.wav"
     narration = plan.get("narration", "")
     tcfg = project.get("narration", {})
-    ok = gemini_tts(narration, tcfg, audio) if "google_gemini_tts" in tcfg.get("provider_order", []) else False
-    if not ok and "edge_tts" in tcfg.get("provider_order", []): ok = edge_tts(narration, tcfg, audio)
+    audio_input = audio
+    voice_provider = "silent_placeholder"
+    eleven_audio = work / "narration_eleven.mp3"
+    ok = elevenlabs_tts(narration, tcfg, eleven_audio) if "elevenlabs_tts" in tcfg.get("provider_order", []) else False
+    if ok:
+        audio_input = eleven_audio; voice_provider = "elevenlabs"
+    if not ok and "google_gemini_tts" in tcfg.get("provider_order", []):
+        ok = gemini_tts(narration, tcfg, audio)
+        if ok: voice_provider = "gemini"
+    if not ok and "edge_tts" in tcfg.get("provider_order", []):
+        ok = edge_tts(narration, tcfg, audio)
+        if ok: voice_provider = "edge_tts"
     if not ok:
         print("No voice provider succeeded; creating silent placeholder audio.")
         make_silent_audio(audio, p.get("target_duration_minutes", 8) * 60)
@@ -533,16 +632,22 @@ def main() -> int:
     visuals = work / "visuals.mp4"; make_visual_video(plan, project, work, visuals, target_dur)
     manifest = json.loads((work / "shot_manifest.json").read_text(encoding="utf-8"))
     music = work / "music.m4a"; make_music(target_dur, music)
-    sfx = work / "sfx.m4a"; make_sfx(manifest, target_dur, sfx)
+    sfx = work / "sfx.m4a"
+    sound_cfg = project.get("sound", {})
+    sfx_provider = "procedural_sfx"
+    sfx_ok = make_elevenlabs_sfx(manifest, target_dur, work, sfx) if "elevenlabs_sfx" in sound_cfg.get("provider_order", []) else False
+    if sfx_ok: sfx_provider = "elevenlabs"
+    if not sfx_ok: make_sfx(manifest, target_dur, sfx)
     final = outdir / project.get("output", {}).get("final_filename", "final.mp4")
     mix = f"[2:a]volume=0.10[m];[3:a]volume=0.05[s];[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,apad=whole_dur={target_dur},atrim=duration={target_dur}[n];[n][m][s]amix=inputs=3:duration=longest:dropout_transition=2[a]"
-    run(["ffmpeg", "-y", "-i", str(visuals), "-i", str(audio), "-i", str(music), "-i", str(sfx), "-filter_complex", mix, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-t", str(target_dur), str(final)])
+    run(["ffmpeg", "-y", "-i", str(visuals), "-i", str(audio_input), "-i", str(music), "-i", str(sfx),
+ "-filter_complex", mix, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-t", str(target_dur), str(final)])
     dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(final)]).stdout.strip() or target_dur)
     if project.get("subtitles", {}).get("enabled", True): make_srt(narration, dur, outdir / "narration.srt")
     (outdir / "claims.json").write_text(json.dumps(plan.get("claims", []), indent=2), encoding="utf-8")
     bundle = outdir / "forge-film-project.json"
     bundle.write_text(json.dumps({"project": project, "plan": plan, "publishing": publishing, "sources": sources}, indent=2, ensure_ascii=False), encoding="utf-8")
-    (outdir / "run_metadata.json").write_text(json.dumps({"title": p.get("title"), "duration_seconds": dur, "resolution": [p.get("width",1920), p.get("height",1080)], "aspect_ratio": "16:9", "style": p.get("visual_style"), "voice": tcfg.get("voice"), "sources": len(sources)}, indent=2), encoding="utf-8")
+    (outdir / "run_metadata.json").write_text(json.dumps({"title": p.get("title"), "duration_seconds": dur, "resolution": [p.get("width",1920), p.get("height",1080)], "aspect_ratio": "16:9", "style": p.get("visual_style"), "voice": tcfg.get("voice"), "voice_provider": voice_provider, "sfx_provider": sfx_provider, "sources": len(sources)}, indent=2), encoding="utf-8")
     print(f"DONE: {final}")
     return 0
 

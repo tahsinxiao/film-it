@@ -22,7 +22,7 @@ sources:
 
 narration:
   enabled: true
-  provider_order: [google_gemini_tts, google_cloud_tts, edge_tts]
+  provider_order: [elevenlabs_tts, google_gemini_tts, google_cloud_tts, edge_tts]
   voice: female_documentary  # female_documentary|male_documentary|female_warm|male_warm
   model: gemini-2.5-flash-tts
   language: en-US
@@ -33,6 +33,10 @@ narration:
     vary pace naturally, create suspense before surprising facts, whisper only for
     genuinely mysterious moments, and pause briefly after important numbers.
   chunk_max_characters: 5500
+  eleven_model: eleven_multilingual_v2
+  stability: 0.42
+  similarity_boost: 0.78
+  style: 0.28
 
 content:
   audience: curious general audience
@@ -58,6 +62,7 @@ visuals:
 sound:
   background_music: true
   music_provider_order: [procedural_music, freesound_optional]
+  provider_order: [elevenlabs_sfx, procedural_sfx]
   sfx: true
   loudness_lufs: -16
   duck_music_under_narration: true
