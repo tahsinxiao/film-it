@@ -273,7 +273,13 @@ All backends implement the same `BasePipeline` interface — adding a new one ta
 
 The repository now includes a graphics-first long-form builder driven by [`project.yml`](project.yml) and a manually triggered GitHub Actions workflow at [`.github/workflows/generate-longform.yml`](.github/workflows/generate-longform.yml). It is designed for English science explainers and educational stories in **16:9 at 1920×1080 or higher**, using procedural diagrams, animated cards, charts, particles, typography, and optional AI-generated inserts instead of depending on human footage.
 
-Edit `project.yml`, commit the changes, open the **Actions** tab, select **Generate long-form video**, and choose **Run workflow**. The finished MP4, narration, subtitles when enabled, source report, claims list, shot data, and metadata are uploaded as the `forge-film-output` artifact. Artifact retention is configured for seven days.
+Edit `project.yml`, commit the changes, open the **Actions** tab, select **Generate long-form video**, and choose **Run workflow**. The finished MP4, optional enhanced 2K60 MP4, narration, subtitles when enabled, source report, claims list, shot data, and metadata are uploaded as the `forge-film-output` artifact. Artifact retention is configured for seven days.
+
+### Optional 2K60 enhancement
+
+The workflow preserves the base `final.mp4` master and, by default, creates `final_2k60.mp4` at **2560×1440 and 60 fps**. The enhancement stage uses FFmpeg Lanczos scaling for spatial enlargement and motion-compensated `minterpolate` for frame-rate conversion. This produces a valid higher-resolution, smoother deliverable without paid software; it cannot recover detail that was never present in the source, and motion interpolation may occasionally create artifacts around fast-moving elements. If motion interpolation fails, the workflow automatically retries with a safer Lanczos-plus-constant-frame-rate conversion.
+
+The behavior is controlled under `enhancement` in `project.yml`. Set `mode: ffmpeg_fast` when reliability and speed matter more than interpolated motion, or set `enabled: false` and keep the 1080p24 master only.
 
 ### Repository secrets
 

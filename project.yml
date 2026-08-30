@@ -70,3 +70,12 @@ output:
   include_script: true
   include_sources_report: true
   include_shot_manifest: true
+
+enhancement:
+  enabled: true
+  mode: ffmpeg_motion  # ffmpeg_motion|ffmpeg_fast
+  width: 2560
+  height: 1440
+  fps: 60
+  filename: final_2k60.mp4
+  keep_base_master: true

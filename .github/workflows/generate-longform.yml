@@ -50,10 +50,23 @@ jobs:
         run: |
           python scripts/build_longform.py --project "${{ inputs.project_file }}"
 
+      - name: Enhance master to 2K 60fps
+        run: |
+          python scripts/enhance_video.py \
+            --input output/final.mp4 \
+            --output output/final_2k60.mp4 \
+            --width 2560 \
+            --height 1440 \
+            --fps 60 \
+            --mode ffmpeg_motion \
+            --metadata output/enhancement_metadata.json
+
       - name: Validate output
         run: |
           test -s output/final.mp4
-          ffprobe -v error -show_entries stream=width,height,codec_name -show_entries format=duration -of json output/final.mp4
+          test -s output/final_2k60.mp4
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate,codec_name -show_entries format=duration -of json output/final.mp4
+          ffprobe -v error -show_entries stream=width,height,r_frame_rate,codec_name -show_entries format=duration -of json output/final_2k60.mp4
 
       - name: Upload generated video bundle
         uses: actions/upload-artifact@v4
