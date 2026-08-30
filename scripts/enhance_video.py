@@ -13,8 +13,8 @@ import subprocess
 from pathlib import Path
 
 
-def run(cmd: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, check=True, capture_output=True, text=True)
+def run(cmd: list[str], timeout: int | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
 
 
 def enhance(src: Path, dst: Path, width: int, height: int, fps: int, mode: str) -> str:
@@ -32,14 +32,14 @@ def enhance(src: Path, dst: Path, width: int, height: int, fps: int, mode: str) 
         "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(dst),
     ]
     try:
-        run(cmd)
+        run(cmd, timeout=300 if mode == "ffmpeg_motion" else None)
         return method
-    except subprocess.CalledProcessError as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         if mode == "ffmpeg_motion":
-            print("Motion interpolation failed; retrying with the reliable fast mode.")
+            print("Motion interpolation failed or exceeded five minutes; retrying with the reliable fast 2K60 mode.")
             fallback = f"{scale},fps={fps},format=yuv420p"
-            run(["ffmpeg", "-y", "-i", str(src), "-vf", fallback, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(dst)])
-            return "Lanczos resize + constant-frame-rate fallback after interpolation failure"
+            run(["ffmpeg", "-y", "-i", str(src), "-vf", fallback, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(dst)])
+            return "Lanczos resize + constant-frame-rate fallback after interpolation failure or timeout"
         raise RuntimeError(exc.stderr[-2000:]) from exc
 
 
