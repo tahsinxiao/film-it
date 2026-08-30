@@ -260,7 +260,22 @@ def make_visual_video(plan: dict[str, Any], project: dict[str, Any], work: Path,
         if last_card:
             f.write(f"file '{last_card.as_posix()}'\n")
     (work / "shot_manifest.json").write_text(json.dumps(beat_records, indent=2), encoding="utf-8")
-    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat), "-vf", "fps=24,format=yuv420p", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
+    style = str(project.get("project", {}).get("visual_style", "classic"))
+    # The input cards are held for their beat durations; zoompan creates continuous
+    # camera movement instead of a static slideshow. The finishing filters make the
+    # named styles behave like visual treatments, not merely palette changes.
+    motion = "zoompan=z='min(zoom+0.0007,1.10)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1920x1080:fps=24"
+    style_filters = {
+        "whiteboard": "drawgrid=w=96:h=96:t=1:c=black@0.07",
+        "classic": "eq=contrast=1.05:saturation=1.08",
+        "anime": "eq=saturation=1.30:contrast=1.08,unsharp=5:5:0.45:5:5:0",
+        "kawaii": "eq=saturation=1.18:brightness=0.04,boxblur=1:1",
+        "watercolor": "gblur=sigma=0.35,eq=saturation=0.90:contrast=0.96",
+        "retroprint": "noise=alls=8:allf=t+u,vignette=PI/5,eq=saturation=0.82:contrast=1.12",
+        "auto": "eq=contrast=1.05:saturation=1.08",
+    }
+    vf = f"fps=24,{motion},{style_filters.get(style, style_filters['classic'])},format=yuv420p"
+    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat), "-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
 
 
 def make_music(seconds: float, out: Path) -> None:
