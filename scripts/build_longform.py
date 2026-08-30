@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import textwrap
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -263,29 +264,136 @@ def font(path: str, size: int):
         return ImageFont.load_default()
 
 
+def fetch_scene_image(scene: dict[str, Any], cfg: dict[str, Any], out: Path) -> bool:
+    """Best-effort free hosted image generation; never blocks the render indefinitely."""
+    if not cfg.get("use_ai_images", True) or os.getenv("FILM_DISABLE_REMOTE_IMAGES", "").lower() == "true":
+        return False
+    visual = str(scene.get("visual", ""))
+    label = str(scene.get("on_screen_text", ""))
+    style = str(cfg.get("visual_style", "classic"))
+    prompt = (f"editorial science illustration, {style} animation style, {visual}, "
+              f"symbolic objects only, no people, no faces, no readable text, clean composition")
+    url = "https://image.pollinations.ai/prompt/" + urllib.parse.quote(prompt) + "?width=1024&height=576&nologo=true"
+    try:
+        r = requests.get(url, timeout=35)
+        r.raise_for_status()
+        if len(r.content) < 5000:
+            return False
+        out.write_bytes(r.content)
+        return True
+    except Exception as exc:
+        print(f"Remote scene image unavailable for {label[:40]}: {exc}")
+        return False
+
+
 def make_card(scene: dict[str, Any], idx: int, total: int, cfg: dict[str, Any], out: Path) -> None:
-    style = cfg.get("visual_style", "classic")
+    """Render a distinct storyboard frame with optional AI art plus animated overlays."""
+    style = str(cfg.get("visual_style", "classic"))
     a, b, accent = STYLE_PALETTES.get(style, STYLE_PALETTES["classic"])
     w, h = int(cfg.get("width", 1920)), int(cfg.get("height", 1080))
-    im = Image.new("RGB", (w, h), a); d = ImageDraw.Draw(im)
-    for y in range(h):
-        t = y / h
-        c = tuple(int(a[i] * (1-t) + b[i] * t) for i in range(3))
-        d.line((0, y, w, y), fill=c)
-    # Procedural scientific motif: orbital curves, particles, and grid.
-    for k in range(7):
-        box = (w*0.56-k*75, h*0.22+k*45, w*0.93+k*30, h*0.80-k*15)
-        d.ellipse(box, outline=accent, width=max(2, 7-k))
-    for k in range(42):
-        x = int((math.sin(k*12.7+idx)*0.35+0.62)*w)
-        y = int((math.cos(k*8.1+idx)*0.35+0.5)*h)
-        r = 3 + (k % 5)
-        d.ellipse((x-r,y-r,x+r,y+r), fill=accent)
-    title = str(scene.get("on_screen_text", scene.get("visual", "")))[:90]
-    wrapped = textwrap.fill(title, width=34)
-    d.text((int(w*0.08), int(h*0.24)), f"{idx+1:02d} / {total:02d}", fill=accent, font=font(DEFAULT_BOLD, 34))
-    d.multiline_text((int(w*0.08), int(h*0.34)), wrapped, fill=(250,250,245) if style not in ("whiteboard","kawaii") else (25,35,45), font=font(DEFAULT_BOLD, 76), spacing=18)
-    d.text((int(w*0.08), int(h*0.83)), "FORGE FILM  •  SCIENCE EXPLAINED", fill=accent, font=font(DEFAULT_FONT, 26))
+    dark_text = style in ("whiteboard", "kawaii")
+    ink = (24, 34, 45) if dark_text else (245, 247, 244)
+    asset = scene.get("_asset")
+    has_asset = False
+    if asset and Path(str(asset)).exists():
+        try:
+            source = Image.open(asset).convert("RGB")
+            source.thumbnail((w, h), Image.Resampling.LANCZOS)
+            im = Image.new("RGB", (w, h), a)
+            x = (w - source.width) // 2; y = (h - source.height) // 2
+            im.paste(source, (x, y))
+            overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            od = ImageDraw.Draw(overlay)
+            od.rectangle((0, 0, w, h), fill=(*a, 110 if style not in ("whiteboard", "kawaii") else 35))
+            im = Image.alpha_composite(im.convert("RGBA"), overlay).convert("RGB")
+            d = ImageDraw.Draw(im)
+            has_asset = True
+        except Exception:
+            im = Image.new("RGB", (w, h), a); d = ImageDraw.Draw(im)
+    else:
+        im = Image.new("RGB", (w, h), a); d = ImageDraw.Draw(im)
+    if not has_asset:
+        for y in range(h):
+            t = y / h
+            c = tuple(int(a[i] * (1-t) + b[i] * t) for i in range(3))
+            d.line((0, y, w, y), fill=c)
+    if style == "whiteboard":
+        for x in range(0, w, 96): d.line((x, 0, x, h), fill=(25,45,55,18), width=1)
+        for y in range(0, h, 96): d.line((0, y, w, y), fill=(25,45,55,18), width=1)
+    elif style == "retroprint":
+        for x in range(0, w, 12): d.line((x, 0, x, h), fill=tuple(max(0, q-10) for q in a), width=1)
+    elif style == "watercolor":
+        for k in range(16):
+            x = int((math.sin(k * 2.4 + idx) * .42 + .5) * w)
+            d.ellipse((x-150, -80+k*80, x+260, 220+k*80), fill=tuple(min(255, q+18) for q in b), outline=None)
+    title = str(scene.get("on_screen_text", scene.get("visual", "")))[:100]
+    visual = str(scene.get("visual", "")).lower()
+    subject = f"{title} {visual}".lower()
+    layout = idx % 8
+    left = int(w * .08); right = int(w * .92); top = int(h * .14); bottom = int(h * .84)
+
+    # Main visual zone: each layout demonstrates a different visual language.
+    if any(k in subject for k in ("black hole", "event horizon", "singularity", "gravity")) and layout in (0, 6):
+        cx, cy = int(w*.70), int(h*.52); radius = int(h*.19)
+        for k in range(6, 0, -1):
+            rr = radius + k*30
+            d.ellipse((cx-rr, cy-rr*.42, cx+rr, cy+rr*.42), outline=accent, width=max(2, 8-k))
+        d.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill=(5, 7, 15), outline=accent, width=8)
+        for k in range(7):
+            sx = int(w*.48 + (k%3)*110); sy = int(h*.25 + (k*97)%420)
+            d.ellipse((sx-7, sy-7, sx+7, sy+7), fill=accent)
+            d.line((sx, sy, cx-int(radius*.7), cy-int(radius*.5)), fill=accent, width=3)
+        d.arc((w*.45, h*.20, w*.86, h*.83), 205, 350, fill=ink, width=6)
+    elif any(k in subject for k in ("clock", "time", "dilation", "before", "after")) or layout == 1:
+        for cx, label in ((int(w*.62), "A"), (int(w*.82), "B")):
+            cy = int(h*.48); r = int(h*.16)
+            d.ellipse((cx-r, cy-r, cx+r, cy+r), outline=accent, width=7)
+            d.line((cx, cy, cx-int(r*.45), cy-int(r*.35)), fill=ink, width=6)
+            d.line((cx, cy, cx+int(r*.25), cy-int(r*.62)), fill=accent, width=5)
+            d.text((cx-16, cy+r+20), label, fill=accent, font=font(DEFAULT_BOLD, 34))
+        d.line((w*.62, h*.78, w*.82, h*.78), fill=accent, width=5)
+        d.polygon([(w*.82,h*.78),(w*.78,h*.75),(w*.78,h*.81)], fill=accent)
+    elif any(k in subject for k in ("mechanism", "evidence", "system", "process", "cause", "effect")) or layout == 2:
+        boxes = [(w*.56,h*.28,w*.70,h*.43),(w*.77,h*.28,w*.91,h*.43),(w*.66,h*.60,w*.81,h*.75)]
+        for j, box in enumerate(boxes):
+            d.rounded_rectangle(box, radius=18, outline=accent, width=6, fill=tuple(int((a[q]+b[q])/2) for q in range(3)))
+            d.text((box[0]+20, box[1]+35), ["CAUSE","MECHANISM","EFFECT"][j], fill=ink, font=font(DEFAULT_BOLD, 27))
+        d.line((w*.70,h*.355,w*.77,h*.355), fill=accent, width=6); d.polygon([(w*.77,h*.355),(w*.74,h*.335),(w*.74,h*.375)], fill=accent)
+        d.line((w*.84,h*.43,w*.74,h*.60), fill=accent, width=6); d.polygon([(w*.74,h*.60),(w*.75,h*.56),(w*.78,h*.58)], fill=accent)
+    elif any(k in subject for k in ("scale", "size", "distance", "compare", "million", "percent")) or layout == 3:
+        base = int(h*.70)
+        for j, height in enumerate((110, 220, 360, 500)):
+            x = int(w*.55 + j*82)
+            d.rounded_rectangle((x, base-height, x+55, base), radius=12, fill=accent if j == 3 else tuple(int((a[q]+b[q])/2) for q in range(3)))
+            d.text((x-5, base+20), str(j+1), fill=ink, font=font(DEFAULT_BOLD, 25))
+        d.line((w*.52,base,w*.90,base), fill=ink, width=5)
+    elif layout in (4, 5):
+        # Particle field and trajectory: useful for atoms, energy, waves, and space.
+        for k in range(75):
+            px = int(w*.53 + (math.sin(k*1.7+idx)*.42+.42)*w*.40)
+            py = int(h*.20 + (math.cos(k*2.1+idx)*.42+.45)*h*.58)
+            rr = 2 + (k % 5)
+            d.ellipse((px-rr,py-rr,px+rr,py+rr), fill=accent)
+        d.arc((w*.48,h*.23,w*.94,h*.82), 170, 335, fill=ink, width=7)
+        d.polygon([(w*.90,h*.35),(w*.86,h*.36),(w*.88,h*.40)], fill=ink)
+    else:
+        # Two-panel reveal for hook, surprise, unknowns, and payoff beats.
+        d.rounded_rectangle((w*.54,h*.23,w*.72,h*.73), radius=28, outline=accent, width=7)
+        d.rounded_rectangle((w*.76,h*.23,w*.94,h*.73), radius=28, outline=ink, width=7)
+        d.line((w*.72,h*.48,w*.76,h*.48), fill=accent, width=8)
+        d.polygon([(w*.76,h*.48),(w*.73,h*.45),(w*.73,h*.51)], fill=accent)
+        d.text((w*.59,h*.42), "KNOWN", fill=accent, font=font(DEFAULT_BOLD, 34))
+        d.text((w*.80,h*.42), "UNKNOWN", fill=ink, font=font(DEFAULT_BOLD, 30))
+
+    # Hierarchical typography and progress marker; never let the counter dominate.
+    d.text((left, top-42), f"{idx+1:02d}  /  {total:02d}", fill=accent, font=font(DEFAULT_BOLD, 28))
+    wrapped = textwrap.fill(title, width=28)
+    d.multiline_text((left, top+55), wrapped, fill=ink, font=font(DEFAULT_BOLD, 68), spacing=12)
+    d.line((left, bottom+28, right, bottom+28), fill=accent, width=5)
+    marker = left + int((right-left) * min(1, (idx+1)/max(1,total)))
+    d.ellipse((marker-10,bottom+18,marker+10,bottom+38), fill=accent)
+    footer = "FILM IT  /  SCIENCE EXPLAINED"
+    d.text((left, h-int(h*.08)), footer, fill=accent, font=font(DEFAULT_FONT, 24))
     im.save(out, quality=95)
 
 
@@ -313,6 +421,11 @@ def make_visual_video(plan: dict[str, Any], project: dict[str, Any], work: Path,
                 beat_scene = dict(scene)
                 beat_scene["on_screen_text"] = beat.get("label") or scene.get("on_screen_text") or scene.get("visual", "")
                 beat_scene["visual"] = f"{scene.get('visual', '')}; {beat.get('visual_change', 'composition shift')}"
+                asset = cards / f"scene_{i:03d}_asset.jpg"
+                asset_limit = int(visual_cfg.get("ai_asset_scene_limit", 12))
+                if i < asset_limit and not asset.exists():
+                    fetch_scene_image(scene, project.get("visuals", {}) | project.get("project", {}), asset)
+                if asset.exists(): beat_scene["_asset"] = str(asset)
                 card = cards / f"scene_{i:03d}_beat_{b:02d}.png"
                 make_card(beat_scene, i * 4 + b, len(scenes) * 4, project["project"] | visual_cfg, card)
                 last_card = card
