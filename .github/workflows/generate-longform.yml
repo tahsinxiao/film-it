@@ -110,10 +110,16 @@ jobs:
           ffprobe -v error -show_entries stream=width,height,r_frame_rate,codec_name -show_entries format=duration -of json output/final.mp4
           ffprobe -v error -show_entries stream=width,height,r_frame_rate,codec_name -show_entries format=duration -of json output/final_2k60.mp4
 
-      - name: Upload generated video bundle
+      - name: Create clean download ZIP
+        run: |
+          python scripts/package_output.py --input output --output output/film-it-output.zip
+          unzip -l output/film-it-output.zip
+          test -s output/film-it-output.zip
+
+      - name: Upload single downloadable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: forge-film-output
-          path: output/
+          name: film-it-video-package
+          path: output/film-it-output.zip
           if-no-files-found: error
           retention-days: 7
