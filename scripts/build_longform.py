@@ -416,13 +416,15 @@ def main() -> int:
     if not ok:
         print("No voice provider succeeded; creating silent placeholder audio.")
         make_silent_audio(audio, p.get("target_duration_minutes", 8) * 60)
-    dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(audio)]).stdout.strip() or 1)
-    visuals = work / "visuals.mp4"; make_visual_video(plan, project, work, visuals, dur)
+    target_dur = max(1.0, float(p.get("target_duration_minutes", 8)) * 60.0)
+    visuals = work / "visuals.mp4"; make_visual_video(plan, project, work, visuals, target_dur)
     manifest = json.loads((work / "shot_manifest.json").read_text(encoding="utf-8"))
-    music = work / "music.m4a"; make_music(dur, music)
-    sfx = work / "sfx.m4a"; make_sfx(manifest, dur, sfx)
+    music = work / "music.m4a"; make_music(target_dur, music)
+    sfx = work / "sfx.m4a"; make_sfx(manifest, target_dur, sfx)
     final = outdir / project.get("output", {}).get("final_filename", "final.mp4")
-    run(["ffmpeg", "-y", "-i", str(visuals), "-i", str(audio), "-i", str(music), "-i", str(sfx), "-filter_complex", "[2:a]volume=0.10[m];[3:a]volume=0.05[s];[1:a]loudnorm=I=-16:TP=-1.5:LRA=11[n];[n][m][s]amix=inputs=3:duration=longest:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", str(final)])
+    mix = f"[2:a]volume=0.10[m];[3:a]volume=0.05[s];[1:a]loudnorm=I=-16:TP=-1.5:LRA=11,apad=whole_dur={target_dur},atrim=duration={target_dur}[n];[n][m][s]amix=inputs=3:duration=longest:dropout_transition=2[a]"
+    run(["ffmpeg", "-y", "-i", str(visuals), "-i", str(audio), "-i", str(music), "-i", str(sfx), "-filter_complex", mix, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-t", str(target_dur), str(final)])
+    dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(final)]).stdout.strip() or target_dur)
     if project.get("subtitles", {}).get("enabled", True): make_srt(narration, dur, outdir / "narration.srt")
     (outdir / "claims.json").write_text(json.dumps(plan.get("claims", []), indent=2), encoding="utf-8")
     bundle = outdir / "forge-film-project.json"
