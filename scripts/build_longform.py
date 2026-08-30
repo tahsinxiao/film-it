@@ -254,8 +254,40 @@ def make_music(seconds: float, out: Path) -> None:
     run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=110:sample_rate=44100", "-f", "lavfi", "-i", "sine=frequency=164.81:sample_rate=44100", "-filter_complex", "[0:a]volume=0.055[a0];[1:a]volume=0.035[a1];[a0][a1]amix=inputs=2,afade=t=in:st=0:d=3,afade=t=out:st=" + str(max(0, seconds-4)) + ":d=4", "-t", str(max(1, seconds)), "-c:a", "aac", str(out)])
 
 
-def make_sfx(seconds: float, out: Path) -> None:
-    run(["ffmpeg", "-y", "-f", "lavfi", "-i", "anoisesrc=d=" + str(max(1, seconds)) + ":c=pink:r=44100", "-af", "volume=0.015,afade=t=in:d=0.2,afade=t=out:st=" + str(max(0, seconds-0.5)) + ":d=0.5", "-c:a", "aac", str(out)])
+def make_sfx(manifest: list[dict[str, Any]], seconds: float, out: Path) -> None:
+    """Create sparse, scene-aware procedural SFX rather than continuous noise."""
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo:d={max(1, seconds):.3f}"]
+    filters = ["[0:a]volume=0.35[base]"]
+    labels = ["[base]"]
+    offset = 0.0
+    event_index = 1
+    for item in manifest:
+        kind = str(item.get("sfx", "none")).lower()
+        duration = float(item.get("duration_seconds", 0))
+        if kind not in {"whoosh", "impact", "spark"}:
+            offset += duration
+            continue
+        if kind == "whoosh":
+            source = "anoisesrc=color=white:sample_rate=44100:duration=0.85"
+            effect = "highpass=f=500,lowpass=f=6500,afade=t=in:d=0.12,afade=t=out:st=0.55:d=0.30,volume=0.30"
+        elif kind == "impact":
+            source = "aevalsrc=0.8*sin(2*PI*(95-45*t)*t)*exp(-4*t):s=44100:d=0.80"
+            effect = "afade=t=out:st=0.45:d=0.35,volume=0.42"
+        else:
+            source = "sine=frequency=1100:sample_rate=44100:duration=0.28"
+            effect = "afade=t=in:d=0.02,afade=t=out:st=0.12:d=0.16,volume=0.22"
+        cmd += ["-f", "lavfi", "-i", source]
+        delay_ms = int(offset * 1000)
+        label = f"[s{event_index}]"
+        filters.append(f"[{event_index}:a]{effect},adelay={delay_ms}|{delay_ms}{label}")
+        labels.append(label)
+        event_index += 1
+        offset += duration
+    if len(labels) == 1:
+        run(cmd + ["-c:a", "aac", "-b:a", "96k", str(out)])
+        return
+    filters.append("".join(labels) + f"amix=inputs={len(labels)}:duration=longest:dropout_transition=0,volume=0.8[out]")
+    run(cmd + ["-filter_complex", ";".join(filters), "-map", "[out]", "-c:a", "aac", "-b:a", "96k", str(out)])
 
 
 def make_srt(text: str, seconds: float, out: Path) -> None:
@@ -287,8 +319,9 @@ def main() -> int:
         make_silent_audio(audio, p.get("target_duration_minutes", 8) * 60)
     dur = float(run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(audio)]).stdout.strip() or 1)
     visuals = work / "visuals.mp4"; make_visual_video(plan, project, work, visuals, dur)
+    manifest = json.loads((work / "shot_manifest.json").read_text(encoding="utf-8"))
     music = work / "music.m4a"; make_music(dur, music)
-    sfx = work / "sfx.m4a"; make_sfx(dur, sfx)
+    sfx = work / "sfx.m4a"; make_sfx(manifest, dur, sfx)
     final = outdir / project.get("output", {}).get("final_filename", "final.mp4")
     run(["ffmpeg", "-y", "-i", str(visuals), "-i", str(audio), "-i", str(music), "-i", str(sfx), "-filter_complex", "[2:a]volume=0.10[m];[3:a]volume=0.05[s];[1:a]loudnorm=I=-16:TP=-1.5:LRA=11[n];[n][m][s]amix=inputs=3:duration=longest:dropout_transition=2[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-shortest", str(final)])
     if project.get("subtitles", {}).get("enabled", True): make_srt(narration, dur, outdir / "narration.srt")
