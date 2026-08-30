@@ -298,7 +298,8 @@ Add authorized YouTube reference URLs under `sources` in `project.yml`. The work
 
 ### Visual and audio fallback design
 
-A full 5–10 minute render is assembled from many short 16:9 visual cards so that the final video remains long-form without requiring a hosted AI video model to generate hundreds of minutes of footage. The output combines narration, low-volume procedural ambient music, and **scene-aware procedural SFX**. The generated shot plan can mark moments as `whoosh`, `impact`, or `spark`; Film It places those effects at the matching scene time, keeps them below the narration, normalizes the mix, and exports optional `.srt` subtitles. Short AI image or video inserts can be added later behind the provider interfaces without making them a hard dependency.
+A full 5–10 minute render is assembled from many short 16:9 visual beats so that the final video remains long-form without requiring a hosted AI video model to generate hundreds of minutes of footage. Film It uses a retention grammar of **hook → paradigm flip → mechanism → evidence → scale → surprise → payoff**. Each scene is divided into short beat cards, normally no longer than about three seconds, with changes in labels, diagrams, particles, color, framing, or composition. The output combines narration, low-volume procedural ambient music, and **scene-aware procedural SFX**.
+ The generated shot plan can mark moments as `whoosh`, `impact`, or `spark`; Film It places those effects at the matching scene time, keeps them below the narration, normalizes the mix, and exports optional `.srt` subtitles. Short AI image or video inserts can be added later behind the provider interfaces without making them a hard dependency.
 
 ### Important zero-budget limitation
 

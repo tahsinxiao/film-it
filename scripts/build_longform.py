@@ -113,8 +113,8 @@ Target duration: {duration} minutes
 Visual style: {style}
 Use source material only as reference. Do not copy sentences or source footage. Clearly mark uncertain claims.
 Return JSON only with this shape:
-{{"title":"...","hook":"...","narration":"full narration around {duration*150} words","scenes":[{{"id":"S1","visual":"...","on_screen_text":"...","sfx":"none|whoosh|impact|spark","duration":8}}],"claims":[{{"claim":"...","source":"..."}}]}}
-Make visuals graphics-first: diagrams, maps, timelines, charts, particles, symbols, textures, and abstract scientific imagery. Avoid humans and faces.
+{{"title":"...","hook":"...","narration":"full narration around {duration*150} words","scenes":[{{"id":"S1","visual":"...","on_screen_text":"...","sfx":"none|whoosh|impact|spark","duration":8,"beats":[{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}}]}}],"claims":[{{"claim":"...","source":"..."}}]}}
+Use a retention grammar: 0-5s high-curiosity hook, 5-15s paradigm flip, then mechanism, evidence, scale, surprise, and payoff. Every scene must contain 2-4 visual beats, each changing within about 3 seconds through a zoom, label, color shift, diagram step, new icon, camera move, or composition change. Make visuals graphics-first: diagrams, maps, timelines, charts, particles, symbols, textures, and abstract scientific imagery. Avoid humans and faces.
 Reference notes:
 {source_text[:24000]}"""
     body = {"model": model, "messages": [{"role": "system", "content": "You are an expert science script editor and visual director."}, {"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}
@@ -139,7 +139,7 @@ def fallback_plan(project: dict[str, Any], sources: list[dict[str, Any]]) -> dic
     scenes = []
     for i in range(n):
         label = chunks[i % len(chunks)]
-        scenes.append({"id": f"S{i+1}", "visual": f"Abstract scientific diagram about {topic}; chapter: {label}", "on_screen_text": label, "sfx": "whoosh" if i % 5 == 0 else "none", "duration": per_scene})
+        scenes.append({"id": f"S{i+1}", "visual": f"Abstract scientific diagram about {topic}; chapter: {label}", "on_screen_text": label, "sfx": "impact" if i == 0 else ("whoosh" if i % 5 == 0 else "none"), "duration": per_scene, "beats": [{"label": label, "visual_change": "establish the central concept"}, {"label": "Mechanism", "visual_change": "zoom in and add directional arrows"}, {"label": "Why it matters", "visual_change": "expand into a connected system"}]})
     claims = [{"claim": f"Topic supplied by project.yml: {topic}", "source": "project.yml"}]
     return {"title": title, "hook": f"What if the familiar story about {topic} is incomplete?", "narration": narration, "scenes": scenes, "claims": claims}
 
@@ -230,22 +230,36 @@ def make_card(scene: dict[str, Any], idx: int, total: int, cfg: dict[str, Any], 
 def make_visual_video(plan: dict[str, Any], project: dict[str, Any], work: Path, out: Path, target_duration: float) -> None:
     scenes = plan.get("scenes", []) or fallback_plan(project, []).get("scenes", [])
     cards = work / "cards"; cards.mkdir(exist_ok=True)
-    durations = []
-    for i, scene in enumerate(scenes):
-        card = cards / f"scene_{i:03d}.png"
-        make_card(scene, i, len(scenes), project["project"] | project.get("visuals", {}), card)
-        durations.append(float(scene.get("duration", project.get("visuals", {}).get("hold_seconds_per_scene", 4))))
-    total = sum(durations) or 1.0
-    scale = target_duration / total
-    durations = [d * scale for d in durations]
-    (work / "shot_manifest.json").write_text(json.dumps([{"scene": s.get("id", f"S{i+1}"), "visual": s.get("visual", ""), "on_screen_text": s.get("on_screen_text", ""), "duration_seconds": durations[i], "sfx": s.get("sfx", "none")} for i, s in enumerate(scenes)], indent=2), encoding="utf-8")
+    visual_cfg = project.get("visuals", {})
+    beat_seconds = float(visual_cfg.get("beat_seconds", 2.8))
+    beat_records = []
+    total_scene_duration = sum(float(s.get("duration", visual_cfg.get("hold_seconds_per_scene", 4))) for s in scenes) or 1.0
+    duration_scale = target_duration / total_scene_duration
     concat = work / "visuals.txt"
+    last_card = None
     with concat.open("w", encoding="utf-8") as f:
-        for i, duration in enumerate(durations):
-            f.write(f"file '{(cards / f'scene_{i:03d}.png').as_posix()}'\n")
-            f.write(f"duration {duration}\n")
-        if durations:
-            f.write(f"file '{(cards / f'scene_{len(durations)-1:03d}.png').as_posix()}'\n")
+        for i, scene in enumerate(scenes):
+            scene_duration = float(scene.get("duration", visual_cfg.get("hold_seconds_per_scene", 4))) * duration_scale
+            raw_beats = scene.get("beats") or [{"label": scene.get("on_screen_text", ""), "visual_change": "establish"}, {"label": "Mechanism", "visual_change": "zoom and add arrows"}, {"label": "Implication", "visual_change": "expand the system"}]
+            if not isinstance(raw_beats, list):
+                raw_beats = [raw_beats]
+            beat_count = max(1, len(raw_beats), math.ceil(scene_duration / max(0.5, beat_seconds)))
+            each = scene_duration / beat_count
+            for b in range(beat_count):
+                beat = raw_beats[b % len(raw_beats)]
+                beat = beat if isinstance(beat, dict) else {"label": str(beat), "visual_change": "composition shift"}
+                beat_scene = dict(scene)
+                beat_scene["on_screen_text"] = beat.get("label") or scene.get("on_screen_text") or scene.get("visual", "")
+                beat_scene["visual"] = f"{scene.get('visual', '')}; {beat.get('visual_change', 'composition shift')}"
+                card = cards / f"scene_{i:03d}_beat_{b:02d}.png"
+                make_card(beat_scene, i * 4 + b, len(scenes) * 4, project["project"] | visual_cfg, card)
+                last_card = card
+                f.write(f"file '{card.as_posix()}'\n")
+                f.write(f"duration {each}\n")
+                beat_records.append({"scene": scene.get("id", f"S{i+1}"), "beat": b + 1, "label": beat_scene["on_screen_text"], "visual_change": beat.get("visual_change", "composition shift"), "duration_seconds": each, "sfx": scene.get("sfx", "none") if b == 0 else "none"})
+        if last_card:
+            f.write(f"file '{last_card.as_posix()}'\n")
+    (work / "shot_manifest.json").write_text(json.dumps(beat_records, indent=2), encoding="utf-8")
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat), "-vf", "fps=24,format=yuv420p", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(out)])
 
 

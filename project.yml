@@ -44,7 +44,11 @@ content:
 visuals:
   scene_count: 24
   hold_seconds_per_scene: 4
+  beat_seconds: 2.8
+  visual_change_max_seconds: 3
   use_ai_images: true
+  retention_grammar: hook_flip_mechanism_scale_payoff
+  transition_style: pop_slide_zoom
   use_procedural_graphics: true
   use_charts_when_data_is_available: true
   allow_short_ai_video_inserts: true
