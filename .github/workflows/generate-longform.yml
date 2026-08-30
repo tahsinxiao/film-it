@@ -3,11 +3,52 @@ name: Generate long-form video
 on:
   workflow_dispatch:
     inputs:
-      project_file:
-        description: "Project YAML file"
+      script_or_topic:
+        description: "Paste your script/story notes, or enter a topic if you want AI to write it"
         required: true
-        default: "project.yml"
         type: string
+      source_url:
+        description: "Optional authorized YouTube reference URL"
+        required: false
+        type: string
+      title:
+        description: "Video title"
+        required: true
+        default: "Science Explained"
+        type: string
+      duration_minutes:
+        description: "Target duration in minutes"
+        required: true
+        default: "8"
+        type: string
+      visual_style:
+        description: "Visual style"
+        required: true
+        default: "whiteboard"
+        type: choice
+        options:
+          - auto
+          - classic
+          - whiteboard
+          - anime
+          - kawaii
+          - watercolor
+          - retroprint
+      voice:
+        description: "Narration voice"
+        required: true
+        default: "female_documentary"
+        type: choice
+        options:
+          - female_documentary
+          - male_documentary
+          - female_warm
+          - male_warm
+      subtitles:
+        description: "Generate subtitles"
+        required: true
+        default: true
+        type: boolean
       openrouter_model:
         description: "Optional OpenRouter model override"
         required: false
@@ -47,8 +88,15 @@ jobs:
           OPENROUTER_MODEL: ${{ inputs.openrouter_model }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          FILM_SCRIPT_OR_TOPIC: ${{ inputs.script_or_topic }}
+          FILM_SOURCE_URL: ${{ inputs.source_url }}
+          FILM_TITLE: ${{ inputs.title }}
+          FILM_DURATION: ${{ inputs.duration_minutes }}
+          FILM_STYLE: ${{ inputs.visual_style }}
+          FILM_VOICE: ${{ inputs.voice }}
+          FILM_SUBTITLES: ${{ inputs.subtitles }}
         run: |
-          python scripts/build_longform.py --project "${{ inputs.project_file }}"
+          python scripts/build_longform.py --project project.yml
 
       - name: Enhance master to 2K 60fps
         run: |

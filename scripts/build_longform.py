@@ -67,6 +67,29 @@ def load_project(path: Path) -> dict[str, Any]:
     return data
 
 
+def apply_workflow_inputs(project: dict[str, Any]) -> dict[str, Any]:
+    """Apply optional GitHub Actions form values without requiring YAML edits."""
+    p = project["project"]
+    text = os.getenv("FILM_SCRIPT_OR_TOPIC", "").strip()
+    if text:
+        p["custom_script"] = text
+        p["topic"] = text if len(text) <= 500 else p.get("topic", p.get("title", "Science topic"))
+    if os.getenv("FILM_TITLE", "").strip():
+        p["title"] = os.environ["FILM_TITLE"].strip()
+    if os.getenv("FILM_DURATION", "").strip():
+        p["target_duration_minutes"] = float(os.environ["FILM_DURATION"])
+    if os.getenv("FILM_STYLE", "").strip():
+        p["visual_style"] = os.environ["FILM_STYLE"].strip().lower()
+    if os.getenv("FILM_VOICE", "").strip():
+        project["narration"]["voice"] = os.environ["FILM_VOICE"].strip()
+    if os.getenv("FILM_SUBTITLES", "").strip():
+        project["subtitles"]["enabled"] = os.environ["FILM_SUBTITLES"].lower() == "true"
+    source_url = os.getenv("FILM_SOURCE_URL", "").strip()
+    if source_url:
+        project["sources"] = [{"url": source_url, "role": "reference"}]
+    return project
+
+
 def fetch_sources(project: dict[str, Any], work: Path) -> list[dict[str, Any]]:
     records = []
     for source in project.get("sources", []):
@@ -107,6 +130,8 @@ def call_openrouter(project: dict[str, Any], sources: list[dict[str, Any]]) -> d
     duration = project["project"].get("target_duration_minutes", 8)
     style = project["project"].get("visual_style", "classic")
     source_text = "\n\n".join(f"SOURCE {i+1}: {s.get('title','')}\n{s.get('transcript','')[:6000]}" for i, s in enumerate(sources))
+    custom_script = project["project"].get("custom_script", "")
+    custom_note = f"CUSTOM SCRIPT OR STORY NOTES:\n{custom_script[:30000]}\nPreserve the user’s factual intent while improving structure and visual pacing." if custom_script else "No custom script was supplied; write the narration from the topic and references."
     prompt = f"""Create a fact-conscious English science explainer video plan.
 Topic: {topic}
 Target duration: {duration} minutes
@@ -116,7 +141,9 @@ Return JSON only with this shape:
 {{"title":"...","hook":"...","narration":"full narration around {duration*150} words","scenes":[{{"id":"S1","visual":"...","on_screen_text":"...","sfx":"none|whoosh|impact|spark","duration":8,"beats":[{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}}]}}],"claims":[{{"claim":"...","source":"..."}}]}}
 Use a retention grammar: 0-5s high-curiosity hook, 5-15s paradigm flip, then mechanism, evidence, scale, surprise, and payoff. Every scene must contain 2-4 visual beats, each changing within about 3 seconds through a zoom, label, color shift, diagram step, new icon, camera move, or composition change. Make visuals graphics-first: diagrams, maps, timelines, charts, particles, symbols, textures, and abstract scientific imagery. Avoid humans and faces.
 Reference notes:
-{source_text[:24000]}"""
+{source_text[:24000]}
+
+{custom_note}"""
     body = {"model": model, "messages": [{"role": "system", "content": "You are an expert science script editor and visual director."}, {"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}
     try:
         res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "HTTP-Referer": "https://github.com/F-R-L/forge-film", "X-Title": "Forge Film"}, json=body, timeout=180)
@@ -134,7 +161,8 @@ def fallback_plan(project: dict[str, Any], sources: list[dict[str, Any]]) -> dic
     topic = p.get("topic", title)
     n = int(project.get("visuals", {}).get("scene_count", 24))
     chunks = ["The question", "What we observe", "The hidden mechanism", "The evidence", "The surprising consequence", "What remains unknown"]
-    narration = (f"Today we are exploring {topic}. " + " ".join([f"This chapter examines {c.lower()} and connects it to the larger scientific picture." for c in chunks]))
+    custom = str(p.get("custom_script", "")).strip()
+    narration = custom if custom else (f"Today we are exploring {topic}. " + " ".join([f"This chapter examines {c.lower()} and connects it to the larger scientific picture." for c in chunks]))
     per_scene = float(p.get("target_duration_minutes", 8)) * 60 / max(1, n)
     scenes = []
     for i in range(n):
@@ -331,7 +359,7 @@ def make_srt(text: str, seconds: float, out: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(); ap.add_argument("--project", default="project.yml"); args = ap.parse_args()
-    project = load_project(Path(args.project)); p = project["project"]
+    project = apply_workflow_inputs(load_project(Path(args.project))); p = project["project"]
     outdir = ROOT / project.get("output", {}).get("directory", "output"); work = outdir / "work"
     outdir.mkdir(parents=True, exist_ok=True); work.mkdir(parents=True, exist_ok=True)
     print(f"Building {p.get('title','Forge Film')} at {p.get('width',1920)}x{p.get('height',1080)} 16:9")

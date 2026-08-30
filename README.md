@@ -273,7 +273,9 @@ All backends implement the same `BasePipeline` interface — adding a new one ta
 
 The repository now includes a graphics-first long-form builder driven by [`project.yml`](project.yml) and a manually triggered GitHub Actions workflow at [`.github/workflows/generate-longform.yml`](.github/workflows/generate-longform.yml). It is designed for English science explainers and educational stories in **16:9 at 1920×1080 or higher**, using procedural diagrams, animated cards, charts, particles, typography, and optional AI-generated inserts instead of depending on human footage.
 
-Edit `project.yml`, commit the changes, open the **Actions** tab, select **Generate long-form video**, and choose **Run workflow**. The finished MP4, optional enhanced 2K60 MP4, narration, subtitles when enabled, source report, claims list, shot data, and metadata are uploaded as the `forge-film-output` artifact. Artifact retention is configured for seven days.
+Open the **Actions** tab, select **Generate long-form video**, and choose **Run workflow**. The form now lets you enter the script or topic, YouTube reference URL, title, duration, visual style, narration voice, and subtitle preference directly. You do not need to edit `project.yml`, Python, or workflow files. The finished MP4, optional enhanced 2K60 MP4, narration, subtitles when enabled, source report, claims list, shot data, and metadata are uploaded as the `forge-film-output` artifact. Artifact retention is configured for seven days.
+
+The `script_or_topic` field accepts either a topic such as `Why do black holes bend time?` or your own narration/story notes. When a custom script is supplied, Film It preserves it as the narration foundation and uses OpenRouter to organize the visual beats, claims, transitions, and SFX. The `source_url` field accepts one authorized YouTube reference URL; the workflow extracts available public metadata and captions as research context rather than downloading source footage.
 
 ### Optional 2K60 enhancement
 
@@ -294,7 +296,7 @@ The default narration configuration supports selectable `female_documentary` and
 
 ### Source handling
 
-Add authorized YouTube reference URLs under `sources` in `project.yml`. The workflow uses `yt-dlp` to retrieve public metadata and an available English transcript when possible. It stores source information for research context and claims reporting; it does **not** reuse the source video’s footage. Replace the placeholder URL in the example configuration before running a production job.
+When using the Actions form, paste an authorized YouTube reference URL into `source_url`. The workflow uses `yt-dlp` to retrieve public metadata and an available English transcript when possible. It stores source information for research context and claims reporting; it does **not** reuse the source video’s footage. The committed `project.yml` remains as a safe default configuration, but normal users do not need to edit it.
 
 ### Visual and audio fallback design
 
