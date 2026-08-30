@@ -138,7 +138,7 @@ Target duration: {duration} minutes
 Visual style: {style}
 Use source material only as reference. Do not copy sentences or source footage. Clearly mark uncertain claims.
 Return JSON only with this shape:
-{{"title":"...","hook":"...","narration":"full narration around {duration*150} words","scenes":[{{"id":"S1","visual":"...","on_screen_text":"...","sfx":"none|whoosh|impact|spark","duration":8,"beats":[{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}}]}}],"claims":[{{"claim":"...","source":"..."}}]}}
+{{"title":"strong clickable but accurate YouTube title","hook":"...","description":"ready-to-publish YouTube description with a short hook, clear explanation, source note, and subscribe call-to-action","hashtags":["#Science","#Explained"],"keywords":["science","education"],"narration":"full narration around {duration*150} words","scenes":[{{"id":"S1","visual":"...","on_screen_text":"...","sfx":"none|whoosh|impact|spark","duration":8,"beats":[{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}},{{"label":"...","visual_change":"..."}}]}}],"claims":[{{"claim":"...","source":"..."}}]}}
 Use a retention grammar: 0-5s high-curiosity hook, 5-15s paradigm flip, then mechanism, evidence, scale, surprise, and payoff. Every scene must contain 2-4 visual beats, each changing within about 3 seconds through a zoom, label, color shift, diagram step, new icon, camera move, or composition change. Make visuals graphics-first: diagrams, maps, timelines, charts, particles, symbols, textures, and abstract scientific imagery. Avoid humans and faces.
 Reference notes:
 {source_text[:24000]}
@@ -157,11 +157,15 @@ Reference notes:
 
 def fallback_plan(project: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
     p = project["project"]
-    title = p.get("title", "Science Explained")
-    topic = p.get("topic", title)
+    topic = str(p.get("topic", "science explained")).strip()
+    custom = str(p.get("custom_script", "")).strip()
+    if (not topic or topic.lower() in {"science topic", "science explained"}) and custom:
+        topic = " ".join(custom.split()[:10]).rstrip(".,!?;:")
+    title = str(p.get("title", "")).strip()
+    if not title or title.lower() in {"science explained", "science explainer"}:
+        title = f"The Hidden Science Behind {topic}".strip()
     n = int(project.get("visuals", {}).get("scene_count", 24))
     chunks = ["The question", "What we observe", "The hidden mechanism", "The evidence", "The surprising consequence", "What remains unknown"]
-    custom = str(p.get("custom_script", "")).strip()
     narration = custom if custom else (f"Today we are exploring {topic}. " + " ".join([f"This chapter examines {c.lower()} and connects it to the larger scientific picture." for c in chunks]))
     per_scene = float(p.get("target_duration_minutes", 8)) * 60 / max(1, n)
     scenes = []
@@ -170,6 +174,36 @@ def fallback_plan(project: dict[str, Any], sources: list[dict[str, Any]]) -> dic
         scenes.append({"id": f"S{i+1}", "visual": f"Abstract scientific diagram about {topic}; chapter: {label}", "on_screen_text": label, "sfx": "impact" if i == 0 else ("whoosh" if i % 5 == 0 else "none"), "duration": per_scene, "beats": [{"label": label, "visual_change": "establish the central concept"}, {"label": "Mechanism", "visual_change": "zoom in and add directional arrows"}, {"label": "Why it matters", "visual_change": "expand into a connected system"}]})
     claims = [{"claim": f"Topic supplied by project.yml: {topic}", "source": "project.yml"}]
     return {"title": title, "hook": f"What if the familiar story about {topic} is incomplete?", "narration": narration, "scenes": scenes, "claims": claims}
+
+
+def make_publishing_metadata(plan: dict[str, Any], project: dict[str, Any], sources: list[dict[str, Any]]) -> dict[str, Any]:
+    p = project["project"]
+    topic = str(p.get("topic", "science explained")).strip()
+    custom = str(p.get("custom_script", "")).strip()
+    if (not topic or topic.lower() in {"science topic", "science explained"}) and custom:
+        topic = " ".join(custom.split()[:10]).rstrip(".,!?;:")
+    title = str(plan.get("title", "")).strip() or f"The Surprising Science of {topic}"
+    clean_words = re.findall(r"[A-Za-z0-9]+", topic.lower())
+    keyword_defaults = ["science", "science explained", "educational video", "documentary", *clean_words[:8]]
+    keywords = list(dict.fromkeys(str(x).strip() for x in (plan.get("keywords") or keyword_defaults) if str(x).strip()))[:20]
+    hashtags = [str(x).strip() for x in (plan.get("hashtags") or []) if str(x).strip().startswith("#")]
+    if not hashtags:
+        hashtags = ["#Science", "#ScienceExplained", "#Education", "#Documentary"]
+    description = str(plan.get("description", "")).strip()
+    if not description:
+        source_note = " This video was created using original graphics and narration, with linked sources used as reference." if sources else " This video uses original graphics and narration."
+        hashtag_text = " ".join(hashtags)
+        description = f"What is really happening with {topic}? In this episode, we break down the mechanism, evidence, and surprising consequences in a clear visual explanation.{source_note}\n\nSubscribe for more science explainers and curious discoveries.\n\n{hashtag_text}"
+    return {"title": title, "description": description, "hashtags": hashtags, "keywords": keywords, "hook": plan.get("hook", ""), "source_count": len(sources)}
+
+
+def write_publishing_package(metadata: dict[str, Any], outdir: Path) -> None:
+    (outdir / "youtube_metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
+    (outdir / "youtube_description.txt").write_text(metadata["description"] + "\n", encoding="utf-8")
+    (outdir / "hashtags.txt").write_text(" ".join(metadata["hashtags"]) + "\n", encoding="utf-8")
+    (outdir / "keywords.txt").write_text(", ".join(metadata["keywords"]) + "\n", encoding="utf-8")
+    package = f"# YouTube publishing package\n\n## Title\n{metadata['title']}\n\n## Description\n{metadata['description']}\n\n## Hashtags\n{' '.join(metadata['hashtags'])}\n\n## Keywords\n{', '.join(metadata['keywords'])}\n"
+    (outdir / "youtube_publishing_package.md").write_text(package, encoding="utf-8")
 
 
 def write_script(plan: dict[str, Any], work: Path) -> Path:
@@ -365,7 +399,14 @@ def main() -> int:
     print(f"Building {p.get('title','Forge Film')} at {p.get('width',1920)}x{p.get('height',1080)} 16:9")
     sources = fetch_sources(project, work)
     plan = call_openrouter(project, sources) or fallback_plan(project, sources)
+    publishing = make_publishing_metadata(plan, project, sources)
+    p["title"] = publishing["title"]
+    plan["title"] = publishing["title"]
+    plan["description"] = publishing["description"]
+    plan["hashtags"] = publishing["hashtags"]
+    plan["keywords"] = publishing["keywords"]
     write_script(plan, work)
+    write_publishing_package(publishing, outdir)
     audio = work / "narration.wav"
     narration = plan.get("narration", "")
     tcfg = project.get("narration", {})
@@ -384,7 +425,7 @@ def main() -> int:
     if project.get("subtitles", {}).get("enabled", True): make_srt(narration, dur, outdir / "narration.srt")
     (outdir / "claims.json").write_text(json.dumps(plan.get("claims", []), indent=2), encoding="utf-8")
     bundle = outdir / "forge-film-project.json"
-    bundle.write_text(json.dumps({"project": project, "plan": plan, "sources": sources}, indent=2, ensure_ascii=False), encoding="utf-8")
+    bundle.write_text(json.dumps({"project": project, "plan": plan, "publishing": publishing, "sources": sources}, indent=2, ensure_ascii=False), encoding="utf-8")
     (outdir / "run_metadata.json").write_text(json.dumps({"title": p.get("title"), "duration_seconds": dur, "resolution": [p.get("width",1920), p.get("height",1080)], "aspect_ratio": "16:9", "style": p.get("visual_style"), "voice": tcfg.get("voice"), "sources": len(sources)}, indent=2), encoding="utf-8")
     print(f"DONE: {final}")
     return 0
