@@ -24,7 +24,7 @@ fi
 mkdir -p "$APP_DIR/jobs" "$APP_DIR/assets" "$APP_DIR/logs" "$APP_DIR/output"
 
 # Termux owns the pip package; do not self-upgrade pip because Termux blocks it.
-python -m pip install --upgrade pyyaml requests pillow yt-dlp edge-tts
+python -m pip install --no-cache-dir pyyaml requests pillow yt-dlp edge-tts
 
 cat > "$APP_DIR/.env" <<EOF
 FILM_IT_PORT=$PORT
